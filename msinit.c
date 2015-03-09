@@ -30,10 +30,10 @@ int spawn(char *prog, ...) {
 
 void shutdown() {
 	printf("msinit: running stop script.\n");
-	pid_t p = spawn("/etc/msinit.stop", NULL);
-	wait(p);
+	wait(spawn("/etc/msinit.stop", NULL));
+	sleep(5);
 
-	sleep(1);
+	wait(spawn("/sbin/hwclock", "--systohc", NULL));
 
 	printf("msinit: sending all processes the TERM signal...\n");
 	kill(-1, SIGTERM);
@@ -42,14 +42,12 @@ void shutdown() {
 	kill(-1, SIGKILL);
 
 	printf("msinit: unmounting everything.\n");
-	p = spawn("/bin/mount", "-o", "remount,rw", "/", NULL);
-	wait(p);
-	spawn("/sbin/swapoff", "-a", NULL);
-	p = spawn("/bin/umount", "-a", NULL);
-	wait(p);
+	wait(spawn("/sbin/swapoff", "-a", NULL));
+	wait(spawn("/bin/umount", "-a", NULL));
 	printf("msinit: waiting for everything to finish.\n");
-	sleep(5);
 	
+	wait(spawn("/bin/mount", "-o", "remount,rw", "/", NULL));
+
 	reboot(RB_POWER_OFF);
 	exit(0);
 }
@@ -72,36 +70,26 @@ void startudev() {
 }
 
 void mountmain() {
-	pid_t p;
-	
 	printf("msinit: remount rw /\n");
-	p = spawn("/bin/mount", "-o", "remount,rw", "/", NULL);
-	wait(p);
+	wait(spawn("/bin/mount", "-o", "remount,rw", "/", NULL));
 
-	printf("msinit: mount others from fstab.\n");
-	p = spawn("/bin/mount", "-a", NULL);
-	wait(p);
-
+	printf("msinit: mount auto.\n");
+	wait(spawn("/bin/mount", "-a", NULL));
+	
 	spawn("/sbin/swapon", "-a", NULL);
 }
 
 void loadsettings() {
 	spawn("/bin/hostname", "-F", "/etc/hostname", NULL);
-	spawn("/sbin/hwclock", "--hctosys", NULL);
+	wait(spawn("/sbin/hwclock", "--hctosys", NULL));
 }
 
 void sigint(int num) {
+	printf("msinit: got sigint.\n");
 	shutdown();
 }
 
 int main(int argc, char **argv) {
-	int s;
-
-	if (geteuid() != 0) {
-		fprintf(stderr, "msinit: must be superuser.\n");
-		exit(1);
-	}
-	
 	printf("msinit: starting...\n");
 
 	signal(SIGINT, sigint);
@@ -111,10 +99,8 @@ int main(int argc, char **argv) {
 	mountmain();
 	loadsettings();
 
-	spawn("/etc/msinit.start", NULL);
+	wait(spawn("/etc/msinit.start", NULL));
 
-	printf("msinit: give it a little time.\n");
-	sleep(1);
 	spawn("/sbin/agetty", "tty1", "linux", "--noclear", "-a", "nilp", NULL);
 
 	while (1) {

@@ -5,7 +5,7 @@ Pretty much everything is hardcoded. Yes, that is a bad idea.
 Don't even attempt to boot without looking through code and changing things. (ie: the autoboot to my login, you probably don't want that.)
 I will try make this easy.
 Good luck.
-Shit's fast. Hopefully.
+Shit's fast. Hopefully. Yeah, it's pretty fast.
 
 Notes
 -----

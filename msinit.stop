@@ -7,3 +7,5 @@
 /etc/rc.d/acpid stop
 /etc/rc.d/dbus stop
 /etc/rc.d/lo stop
+
+sleep 5
