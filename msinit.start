@@ -1,0 +1,12 @@
+#!/bin/mksh
+
+/etc/rc.d/lo start
+/etc/rc.d/dbus start
+/etc/rc.d/acpid start
+/etc/rc.d/lowbatteryd start
+/etc/rc.d/alsa start
+sleep 1
+/etc/rc.d/wicd start
+/etc/rc.d/tor start
+
+([ 1 == `cat /sys/class/power_supply/AC/online` ] && sh /etc/acpi/actions/ac.sh || sh /etc/acpi/actions/battery.sh) &

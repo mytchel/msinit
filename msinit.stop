@@ -1,0 +1,9 @@
+#!/bin/mksh
+
+/etc/rc.d/tor stop
+/etc/rc.d/wicd stop
+/etc/rc.d/alsa stop
+/etc/rc.d/lowbatteryd stop
+/etc/rc.d/acpid stop
+/etc/rc.d/dbus stop
+/etc/rc.d/lo stop
