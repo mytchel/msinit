@@ -1,0 +1,8 @@
+ Lines beginning with a space are ignored.
+
+ So are lines that consist of nothing but a newline char.
+
+after=hostname
+after=home-mount
+after=udev
+exec=/sbin/agetty tty1 linux -a nilp
