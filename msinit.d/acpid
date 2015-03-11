@@ -1,0 +1,3 @@
+need=udev
+exec=/usr/sbin/acpid -c /etc/acpi/events
+exits=y

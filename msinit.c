@@ -6,80 +6,77 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <string.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/types.h>
 
+#define SERVICEDIR "/etc/msinit.d"
+#define PIDDIR "/var/run/msinit"
+
 #include "msinit.h"
 
 Service *services;
 
-void runservice(Service *s) {
-	int a;
-	char *exec[10];
+void *runservice(void *arg) {
+	int i;
 	pid_t pid;
-	Service *sa;
+	int stat_val;
+	Service *s = (Service *) arg;
 
-	printf("msinit: possibly running service %s\n", s->name);
+	if (s->started) return;
 
-	if (isservicerunning(s)) {
-		fprintf(stderr, "msinit: %s is already started, not running.\n", s->name);
-		return;
+	printf("msinit: trying to start %s\n", s->name);
+
+	for (i = 0; i < s->nneed; i++) {
+		while (!s->need[i]->ready) {
+			fprintf(stderr, "%s will have to wait for %s\n", s->name, 
+					s->need[i]->name);
+			sleep(1);
+		}
+		if (s->started) return;
 	}
 
-	for (a = 0; s->after[a][0]; a++) {
-		sa = findservice(s->after[a]);
-		if (sa)
-			runservice(sa);
-		else
-			fprintf(stderr, "msinit: ERROR no service named '%s'\n", s->after[a]);
+	printf("msinit: %s is ready to start!!\n", s->name);
 
-	}
+	if (s->started) return;
+	else s->started = 1;
 
-	if ((pid = fork()) == 0) {
-		printf("msinit: starting %s after sleep\n", s->name);
-		sleep(2);
-		printf("msinit: starting %s now\n", s->name);
-//		sleep(20);
+	pid = fork();
+	if (pid == 0) {
+		printf("fork %s: ", s->name);
+		for (i = 0; s->exec[i]; i++)
+			printf("%s ", s->exec[i]);
+		printf("\n");
 		execvp(s->exec[0], s->exec);
-		fprintf(stderr, "msinit: ERROR occured while running service %s that"
-				"caused it to terminate.\n", s->name);
-		removepidfile(s);
-	} else {
-		printf("msinit: writing pid file\n");
-		writepidfile(s, pid);
+		fprintf(stderr, "msinit: ERROR execvp for %s has exited!\n", s->name);
+		exit(0);
 	}
-}
 
-void writepidfile(Service *s, pid_t pid) {
-	FILE *f;
-	char n[256];
-	f = fopen(n, "w");
-	sprintf(n, "/var/run/msinit/%s", s->name);
-	if (f) {
-		fprintf(f, "%i", pid);
-		fclose(f);
-	} else {
-		fprintf(stderr, "msinit: ERROR opening pid file %s.\n", n);
+	if (!s->exits) s->ready = 1;
+
+	while (1) {
+		waitpid(pid, &stat_val, 0);
+		
+		if (WIFEXITED(stat_val)) {
+			s->started = 0;
+			if (s->exits) {
+				s->ready = 1;
+			} else {
+				s->ready = 0;
+				fprintf(stderr, "%s: FAILED!\n", s->name);
+			}
+
+			if (s->restart) {
+				runservice(s);
+			}
+
+			break;
+		}
+		
+		sleep(1);
 	}
-}
-
-void removepidfile(Service *s) {
-	char n[256];
-	sprintf(n, "/var/run/msinit/%s", s->name);
-	remove(n);
-}
-
-int isservicerunning(Service *s) {
-	int f;
-	char n[256];
-	sprintf(n, "/var/run/msinit/%s", s->name);
-	f = open(n, O_RDONLY);
-	if (f < 0)
-		return 0;
-	close(f);
-	return 1;
 }
 
 Service *findservice(char *name) {
@@ -88,6 +85,18 @@ Service *findservice(char *name) {
 		if (strcmp(s->name, name) == 0)
 			return s;
 	return NULL;
+}
+
+Service *makeservice() {
+	Service *s = malloc(sizeof(Service));
+	s->name = malloc(sizeof(char) * 256);
+	s->exec[0] = NULL;
+	s->exits = 1;
+	s->restart = 0;
+	s->started = s->ready = 0;
+	s->nneed = 0;
+	s->next = NULL;
+	return s;
 }
 
 int spawn(char *prog, ...) {
@@ -110,98 +119,122 @@ int spawn(char *prog, ...) {
 	return 0;
 }
 
-void evalfile(char *name, FILE *file) {
-	char *line, *linesave, *var, *val;
+void fleshservice(Service *s, FILE *file) {
+	char buf[256], *line, *var, *val;
 	int afters = 0;
 	int i;
+	char *c, *l, o;
+	
+	while (fgets(buf, sizeof(buf), file) != NULL) {
+		for (line = &buf[0]; *line == ' ' || *line == '\t'; line++);
 
-	Service *s;
-	Service *new = malloc(sizeof(Service));
-	new->name = name;
-	new->after[0][0] = '\0';
-	new->next = NULL;
-	new->exec[0] = NULL;
-
-	while (1) {
-		line = linesave = malloc(sizeof(char) * 256);
-		if (fgets(line, sizeof(char) * 256, file) == NULL) {
-			free(line);
-			break;
-		}
-
-		for (; *line == ' ' || *line == '\t'; line++);
-
-		if (*line == '#' || *line == '\n') {
-			free(linesave);
+		if (*line == '#' || *line == '\n')
 			continue;
-		}
-
-		printf("got line: %s", line);
 
 		var = strsep(&line, "=");
 		val = strsep(&line, "\n");
 
 		if (strcmp(var, "exec") == 0) {
-			printf("msinit: breaking into exec array\n");
-			int c, l;
-			i = c = l = 0;
+			i = 0;
+			c = l = val;
 			do {
-				// TODO: Add handing of string args...
-				
-				if (val[c] == ' ' || !val[c]) {
-					printf("adding chars from %i to %i\n", l, c);
-					new->exec[i] = malloc(sizeof(char) * (c - l + 1));
-					strncpy(new->exec[i], val + l, c - l);
-					new->exec[i][c - l] = '\0';
-					printf("added '%s'\n", new->exec[i]);
-					new->exec[++i] = NULL;
-					l = c + 1;
+				if (*c == '"' || *c == '\'') {
+					o = *c;
+					for (c++; c && *c != o; c++);
 				}
-			} while (val[c++] && i < 9);
 
-		} else if (strcmp(var, "after") == 0 && afters < 9) {
-			printf("msinit: adding '%s' to afters array\n", val);
-			i = strlen(val);
-			strncpy(new->after[afters], val, i);
-			new->after[afters][i] = '\0';
-			new->after[++afters][0] = '\0';
+				if (*c == '\\') c += 2;
+				
+				if (*c == ' ' || *c == '\t' || !*c) {
+					s->exec[i] = malloc(sizeof(char) * (c - l + 1));
+					strncpy(s->exec[i], l, c - l);
+					s->exec[i][c - l] = '\0';
+					s->exec[++i] = NULL;
+
+					for (l = c; *l == ' ' || *l == '\t' || !l; l++);
+					c = l;
+				}
+			} while (*(c++) && i < 9);
+
+		} else if (strcmp(var, "need") == 0) {
+			s->need = realloc(s->need, sizeof(Service*) * (s->nneed + 1));
+			s->need[s->nneed++] = findservice(val);
+		} else if (strcmp(var, "exits") == 0) {
+			s->exits = *val == 'y';
+		} else if (strcmp(var, "restart") == 0) {
+			s->restart = *val == 'y';
+		} else {
+			fprintf(stderr, "msinit: ERROR unknown thing in config line: %s", 
+					buf);
 		}
-		
-		free(linesave);
 	}
 
-	printf("msinit: adding to service list\n");
-	for (s = services; s && s->next; s = s->next);
-	if (s) 
-		s->next = new;
+	printf("msinit: service %s should be good to go\n", s->name);
+}
+
+void evaldir(char *name, Service *s) {
+	DIR *d;
+	struct dirent *dir;
+	char fullname[256];
+
+	if (name)
+		sprintf(fullname, "%s/%s", SERVICEDIR, name);
 	else
-		services = new;
+		sprintf(fullname, SERVICEDIR);
+	
+	d = opendir(fullname);
+
+	if (!d) {
+		fprintf(stderr, "msinit: ERROR opening service dir %s\n", name);
+		return;
+	}
+
+	while ((dir = readdir(d)) != NULL) {
+		if (dir->d_type == DT_REG || dir->d_type == DT_LNK) {
+			/* Create a new service and add it to the list. */
+			s->next = makeservice();
+			s = s->next;
+			if (name)
+				sprintf(s->name, "%s/%s", name, dir->d_name);
+			else
+				sprintf(s->name, "%s", dir->d_name);
+		} else if (dir->d_type == DT_DIR && dir->d_name[0] != '.') {
+			char subname[1024];
+			if (name)
+				sprintf(subname, "%s/%s", name, dir->d_name);
+			else
+				sprintf(subname, "%s", dir->d_name);
+			evaldir(subname, s);
+		}
+	}
+
+	closedir(d);
 }
 
 int evalfiles() {
-	DIR *d;
-	struct dirent *dir;
 	FILE *f;
-	char *name, fullname[1024];
+	Service *s;
+	char fullname[256];
 
-	d = opendir("/etc/msinit.d");
-	if (!d) return 1;
-	while ((dir = readdir(d)) != NULL) {
-		if (dir->d_type == DT_REG || dir->d_type == DT_LNK) {
-			name = malloc(sizeof(char) * 256);
-			strcpy(name, dir->d_name);
-			sprintf(fullname, "/etc/msinit.d/%s", name);
-			f = fopen(fullname, "r");
-			if (f) {
-				printf("msinit: evaluating file %s\n", dir->d_name);
-				evalfile(name, f);
-				fclose(f);
-			} else {
-				fprintf(stderr, "msinit: ERROR opening file %s\n", dir->d_name);
-				return 1;
-			}
+	services = makeservice();
+	sprintf(services->name, "basic-boot");
+	services->ready = 1;
+
+	evaldir(NULL, services);
+
+	/* Flesh out the services. */
+	for (s = services->next; s; s = s->next) {	
+		sprintf(fullname, "%s/%s", SERVICEDIR, s->name);
+		f = fopen(fullname, "r");
+		if (f) {
+			fleshservice(s, f);
+			fclose(f);
+		} else {
+			fprintf(stderr, "msinit: ERROR opening file %s\n", fullname);
+			return 1;
 		}
 	}
+
 	return 0;
 }
 
@@ -264,14 +297,15 @@ int main(int argc, char **argv) {
 	spawn("/sbin/agetty", "tty3", "linux", "--noclear", NULL);
 	
 	if (evalfiles() == 0) {
-		wait(spawn("/bin/rm", "/var/run/msinit/*", NULL));
-		for (s = services; s; s = s->next)
-			runservice(s);
+		for (s = services->next; s; s = s->next) {
+			pthread_t pth;
+			pthread_create(&pth, NULL, runservice, (void *) s);
+		}
 	} else {
 		fprintf(stderr, "msinit: ERROR evaluating files in /etc/msinit.d\n");
 		fallback();
 	}
-
+	
 	while (1) {
 		printf("msinit: waiting for nothing in particular.\n");
 		wait(-1);

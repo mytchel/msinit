@@ -1,8 +1,17 @@
- Lines beginning with a space are ignored.
+	# Lines whoose first non-space char is a # are ignored.
+	# So are lines that consist of nothing but white space.
 
- So are lines that consist of nothing but a newline char.
+need=hostname
+need=udev
+need=home-mount
 
-after=hostname
-after=home-mount
-after=udev
-exec=/sbin/agetty tty1 linux -a nilp
+# This will be executed by execvp after all after services have been completed.
+# It can only have ten parts at the moment.
+exec=/sbin/agetty tty2 linux -a nilp
+
+# y(es) to re-exec when process exits. n(o) to disable. Default is no.
+restart=y
+
+# Start the things that need me after I have stared or after I have exited.
+# y(es) on start, n(o) on exit. Default is yes.
+exits=n

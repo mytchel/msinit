@@ -1,20 +1,24 @@
 typedef struct Service Service;
 struct Service {
+	Service *next; /* For main linked list. */
 	char *name;
 	char *exec[10];
-	char after[10][256];
-	Service *next;
+	
+	int exits, restart;
+	int started, ready;
+	int nneed;
+	Service **need; /* Wont start until all in here are ready. */
 };
 
-void runservice(Service *s);
-void writepidfile(Service *s, pid_t pid);
-void removepidfile(Service *s);
-int isservicerunning(Service *s);
+Service *makeservice(); /* Makes and empty service struct. */
+
+void *runservice(void *a);
 Service *findservice(char *name);
 
 int spawn(char *prog, ...);
 
-void evalfile(char *name, FILE *file);
+void fleshservice(Service *s, FILE *file);
+void evaldir(char *name, Service *s);
 int evalfiles();
 
 void shutdown();
