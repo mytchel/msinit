@@ -12,52 +12,75 @@
 #include <sys/reboot.h>
 #include <sys/types.h>
 
-#define SERVICEDIR "/etc/msinit.d"
-#define PIDDIR "/var/run/msinit"
-
 #include "msinit.h"
 
 Service *services;
+int state;
+
+void message(char *s, ...) {
+	char *b = NULL;
+	FILE *logout;
+	va_list ap;
+
+	logout = fopen(LOGFILE, "a+");
+	if (logout) {
+		fprintf(logout, "msinit: %s", s);
+		va_start(ap, s);
+		while ((b = va_arg(ap, char *)) != NULL) {
+			fprintf(logout, "%s", b);
+		}
+		va_end(ap);
+		fprintf(logout, "\n");
+		fclose(logout);
+	}
+
+	fprintf(stdout, "msinit: %s", s);
+	va_start(ap, s);
+	while ((b = va_arg(ap, char *)) != NULL) {
+		printf("%s", b);
+	}
+	va_end(ap);
+
+	fprintf(stdout, "\n");
+}
 
 void *runservice(void *arg) {
 	int i;
-	pid_t pid;
 	int stat_val;
 	Service *s = (Service *) arg;
-
-	if (s->started) return;
-
-	printf("msinit: trying to start %s\n", s->name);
+	
+	if (s->started) pthread_exit(NULL);
 
 	for (i = 0; i < s->nneed; i++) {
 		while (!s->need[i]->ready) {
-			fprintf(stderr, "%s will have to wait for %s\n", s->name, 
-					s->need[i]->name);
-			sleep(1);
+			if (s->need[i]->pid > 1) 
+				waitpid(s->need[i]->pid, NULL, 0);
+			else
+				usleep(10000);
 		}
-		if (s->started) return;
+		if (s->started) pthread_exit(NULL);
 	}
 
-	printf("msinit: %s is ready to start!!\n", s->name);
-
-	if (s->started) return;
+	if (state == SHUTDOWN || s->started) pthread_exit(NULL);
 	else s->started = 1;
 
-	pid = fork();
-	if (pid == 0) {
-		printf("fork %s: ", s->name);
-		for (i = 0; s->exec[i]; i++)
-			printf("%s ", s->exec[i]);
-		printf("\n");
-		execvp(s->exec[0], s->exec);
-		fprintf(stderr, "msinit: ERROR execvp for %s has exited!\n", s->name);
-		exit(0);
+	s->pid = fork();
+	if (s->pid == -1) {
+		message("ERROR forking for ", s->name, NULL);
+		pthread_exit(NULL);
 	}
+
+	if (s->pid == 0) {
+		message("fork: ", s->name, NULL);
+		execvp(s->exec[0], s->exec);
+		message("ERROR execvp for ", s->name, " has exited!", NULL);
+		exit(0);
+	}	
 
 	if (!s->exits) s->ready = 1;
 
 	while (1) {
-		waitpid(pid, &stat_val, 0);
+		waitpid(s->pid, &stat_val, 0);
 		
 		if (WIFEXITED(stat_val)) {
 			s->started = 0;
@@ -65,18 +88,18 @@ void *runservice(void *arg) {
 				s->ready = 1;
 			} else {
 				s->ready = 0;
-				fprintf(stderr, "%s: FAILED!\n", s->name);
+				message(s->name, "FAILED!", NULL);
 			}
 
-			if (s->restart) {
-				runservice(s);
-			}
+			if (s->restart)
+				runservice((void *) s);
 
 			break;
 		}
-		
 		sleep(1);
 	}
+	
+	pthread_exit(NULL);
 }
 
 Service *findservice(char *name) {
@@ -95,6 +118,7 @@ Service *makeservice() {
 	s->restart = 0;
 	s->started = s->ready = 0;
 	s->nneed = 0;
+	s->pid = -1;
 	s->next = NULL;
 	return s;
 }
@@ -110,8 +134,9 @@ int spawn(char *prog, ...) {
 
 	argv[0] = prog;
 	va_start(ap, prog);
-	for (i = 1; i < 9 && (argv[i] = va_arg(ap, char *)) != NULL; i++);
+	for (i = 1; i < EXECMAX && (argv[i] = va_arg(ap, char *)) != NULL; i++);
 	argv[i] = NULL;
+	va_end(ap);
 
 	execvp(argv[0], argv);
 	exit(1);
@@ -154,22 +179,23 @@ void fleshservice(Service *s, FILE *file) {
 					for (l = c; *l == ' ' || *l == '\t' || !l; l++);
 					c = l;
 				}
-			} while (*(c++) && i < 9);
+			} while (*(c++) && i < EXECMAX - 1);
 
-		} else if (strcmp(var, "need") == 0) {
-			s->need = realloc(s->need, sizeof(Service*) * (s->nneed + 1));
-			s->need[s->nneed++] = findservice(val);
+		} else if (strcmp(var, "need") == 0 && s->nneed < NEEDMAX) {
+			Service *n = findservice(val);
+			if (n)
+				s->need[s->nneed++] = n;
+			else
+				message("ERROR, ", s->name, " has need ", val, 
+						" that could not be found!", NULL);
 		} else if (strcmp(var, "exits") == 0) {
 			s->exits = *val == 'y';
 		} else if (strcmp(var, "restart") == 0) {
 			s->restart = *val == 'y';
 		} else {
-			fprintf(stderr, "msinit: ERROR unknown thing in config line: %s", 
-					buf);
+			message("ERROR, unknown thing in config line: ", buf, NULL);
 		}
 	}
-
-	printf("msinit: service %s should be good to go\n", s->name);
 }
 
 void evaldir(char *name, Service *s) {
@@ -185,7 +211,7 @@ void evaldir(char *name, Service *s) {
 	d = opendir(fullname);
 
 	if (!d) {
-		fprintf(stderr, "msinit: ERROR opening service dir %s\n", name);
+		message("ERROR opening service dir ", name, NULL);
 		return;
 	}
 
@@ -230,7 +256,7 @@ int evalfiles() {
 			fleshservice(s, f);
 			fclose(f);
 		} else {
-			fprintf(stderr, "msinit: ERROR opening file %s\n", fullname);
+			message("ERROR opening file ", fullname, NULL);
 			return 1;
 		}
 	}
@@ -239,18 +265,23 @@ int evalfiles() {
 }
 
 void shutdown() {
+	state = SHUTDOWN;
+	message("\n\nCOMING DOWN.\n", NULL);
+
 	wait(spawn("/sbin/hwclock", "--systohc", NULL));
 
-	printf("msinit: sending all processes the TERM signal...\n");
+	message("sending all processes the TERM signal...", NULL);
 	kill(-1, SIGTERM);
 	sleep(3);
-	printf("msinit: sending all processes the KILL signal...\n");
+	message("sending all processes the KILL signal...", NULL);
 	kill(-1, SIGKILL);
 
-	printf("msinit: unmounting everything.\n");
+	message("unmounting everything.", NULL);
 	wait(spawn("/sbin/swapoff", "-a", NULL));
-	wait(spawn("/bin/umount", "-a", NULL));
-	printf("msinit: waiting for everything to finish.\n");
+	wait(spawn("/bin/umount", "-a", "-d", "-r", "-t", 
+				"nosysfs,noproc,nodevtmpfs", NULL));
+	wait(spawn("/bin/umount", "-a", "-r", NULL));
+	message("waiting for everything to finish.", NULL);
 
 	wait(spawn("/bin/mount", "-o", "remount,rw", "/", NULL));
 
@@ -260,55 +291,58 @@ void shutdown() {
 
 void basicboot() {
 	if (mount("none", "/proc", "proc", 0, "") != 0) {
-		printf("msinit: ERROR mounting /proc\n");
+		message("ERROR mounting /proc", NULL);
 		exit(1);
 	}
 
 	if (mount("none", "/sys", "sysfs", 0, "") != 0) {
-		printf("msinit: ERROR mounting /sys\n");
+		message("ERROR mounting /sys", NULL);
 		exit(1);
 	}
 
 	wait(spawn("/sbin/hwclock", "--hctosys", NULL));
 
-	printf("msinit: remount rw /\n");
+	message("remounting / rw", NULL);
 	wait(spawn("/bin/mount", "-o", "remount,rw", "/", NULL));
 }
 
 void sigint(int num) {
-	printf("msinit: got sigint.\n");
 	shutdown();
 }
 
 void fallback() {
-	fprintf(stderr, "msinit: Falling back to agetty.\n");
+	message("FALLING BACK TO GETTY", NULL);
 	spawn("/sbin/agetty", "tty1", "linux", "--noclear", NULL);
 }
 
 int main(int argc, char **argv) {
 	Service *s;
-	printf("msinit: starting...\n");
+
+	message("starting...\n", NULL);
 
 	signal(SIGINT, sigint);
 
 	basicboot();
 
 	// For debuging purposes.
-	spawn("/sbin/agetty", "tty3", "linux", "--noclear", NULL);
+	spawn("/sbin/agetty", "tty2", "linux", "--noclear", NULL);
 	
 	if (evalfiles() == 0) {
+		message("starting services\n", NULL);
 		for (s = services->next; s; s = s->next) {
 			pthread_t pth;
-			pthread_create(&pth, NULL, runservice, (void *) s);
+			if (pthread_create(&pth, NULL, runservice, (void *) s))
+				message("ERROR starting thread for service ", s->name, NULL);
 		}
 	} else {
-		fprintf(stderr, "msinit: ERROR evaluating files in /etc/msinit.d\n");
+		message("ERROR evaluating files in /etc/msinit.d", NULL);
 		fallback();
 	}
-	
+
+	message("basic boot complete and services should be starting.\n", NULL);
 	while (1) {
-		printf("msinit: waiting for nothing in particular.\n");
 		wait(-1);
+		sleep(1);
 	}
 
 	return 0;

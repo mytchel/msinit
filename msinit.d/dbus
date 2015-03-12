@@ -1,0 +1,3 @@
+exec=/usr/sbin/dbus-daemon --system
+exits=y
+restart=n
