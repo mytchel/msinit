@@ -1,4 +1,4 @@
-need=udev
+need=eudev
 need=lo-up
 need=hostname
-exec=/sbin/dhcpcd -A
+exec=/sbin/dhcpcd -A -b

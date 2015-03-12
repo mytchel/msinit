@@ -1,3 +1,1 @@
 exec=/sbin/ip addr add 127.0.0.1/8 dev lo broadcast + scope host
-exits=y
-restart=n

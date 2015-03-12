@@ -1,13 +1,16 @@
 # Lines whoose first non-space char is a # are ignored.
 # So are lines that consist of nothing but white space.
 
-	# White space at the begining of the line is ignored.
-	need=hostname
-	need=udev
-	need=home-mount
+	# Whitespace at the begining of the line is ignored.
+# However whitespace at the end of the line is not.
+# So be careful about having an extra space on the end of a need.
+# Usefull part is that needs can have spaces in their names I suppose.
+need=hostname
+need=mount-home
+need=eudev
 
 # This will be executed by execvp after all needs are ready.
-exec=/sbin/agetty tty1 linux -a nilp
+exec=/sbin/agetty tty3 linux -a nilp
 
 # y(es) to re-exec when process exits. n(o) to disable. Default is no.
 restart=y

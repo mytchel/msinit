@@ -1,3 +1,4 @@
-exec=/usr/sbin/dbus-daemon --system
-exits=y
-restart=n
+need=eudev
+exec=/usr/sbin/dbus-daemon --system --nopidfile --nofork
+exits=n
+restart=y

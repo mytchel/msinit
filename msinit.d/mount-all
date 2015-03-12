@@ -1,2 +1,2 @@
-need=make-devs
+need=mount-home
 exec=/bin/mount -a

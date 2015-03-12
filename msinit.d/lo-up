@@ -1,4 +1,2 @@
 need=lo-addr
 exec=/sbin/ip link set lo up
-exits=y
-restart=n

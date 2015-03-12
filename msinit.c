@@ -44,11 +44,18 @@ void message(char *s, ...) {
 	fprintf(stdout, "\n");
 }
 
+void mvlogfile() {
+	int f = open(LOGFILE, O_RDONLY);
+	if (!f) return;
+	close(f);
+	rename(LOGFILE, BACKLOGFILE);
+}
+
 void *runservice(void *arg) {
 	int i;
 	int stat_val;
 	Service *s = (Service *) arg;
-	
+
 	if (s->started) pthread_exit(NULL);
 
 	for (i = 0; i < s->nneed; i++) {
@@ -98,7 +105,7 @@ void *runservice(void *arg) {
 		}
 		sleep(1);
 	}
-	
+
 	pthread_exit(NULL);
 }
 
@@ -264,32 +271,40 @@ int evalfiles() {
 	return 0;
 }
 
-void shutdown() {
+void shutdown(int r) {
 	state = SHUTDOWN;
 	message("\n\nCOMING DOWN.\n", NULL);
 
-	wait(spawn("/sbin/hwclock", "--systohc", NULL));
+	spawn("/sbin/hwclock", "--systohc", NULL);
 
 	message("sending all processes the TERM signal...", NULL);
 	kill(-1, SIGTERM);
-	sleep(3);
+	sleep(5);
 	message("sending all processes the KILL signal...", NULL);
 	kill(-1, SIGKILL);
+	sleep(3);
 
+	spawn("/sbin/swapoff", "-a", NULL);
 	message("unmounting everything.", NULL);
-	wait(spawn("/sbin/swapoff", "-a", NULL));
-	wait(spawn("/bin/umount", "-a", "-d", "-r", "-t", 
-				"nosysfs,noproc,nodevtmpfs", NULL));
-	wait(spawn("/bin/umount", "-a", "-r", NULL));
+	spawn("/bin/mount", "-o", "remount,rw", "/", NULL);
+	sleep(1);
+	spawn("/bin/umount", "-a", "-r", NULL);
+	
 	message("waiting for everything to finish.", NULL);
+	sleep(3);
 
-	wait(spawn("/bin/mount", "-o", "remount,rw", "/", NULL));
+	if (r) 
+		reboot(RB_AUTOBOOT);
+	else
+		reboot(RB_POWER_OFF);
 
-	reboot(RB_POWER_OFF);
 	exit(0);
 }
 
 void basicboot() {
+	pid_t p;
+	int stat_val;
+
 	if (mount("none", "/proc", "proc", 0, "") != 0) {
 		message("ERROR mounting /proc", NULL);
 		exit(1);
@@ -300,14 +315,26 @@ void basicboot() {
 		exit(1);
 	}
 
-	wait(spawn("/sbin/hwclock", "--hctosys", NULL));
+	spawn("/sbin/hwclock", "--hctosys", NULL);
+
+	// For debuging purposes.
+	spawn("/sbin/agetty", "tty2", "linux", "--noclear", NULL);
 
 	message("remounting / rw", NULL);
-	wait(spawn("/bin/mount", "-o", "remount,rw", "/", NULL));
+	p = spawn("/bin/mount", "-o", "remount,rw", "/", NULL);
+
+	while (1) {
+		waitpid(p, &stat_val, 0);
+		if (WIFEXITED(stat_val)) break;
+	}
 }
 
 void sigint(int num) {
-	shutdown();
+	shutdown(0);
+}
+
+void sigquit(int num) {
+	shutdown(1);
 }
 
 void fallback() {
@@ -321,28 +348,32 @@ int main(int argc, char **argv) {
 	message("starting...\n", NULL);
 
 	signal(SIGINT, sigint);
-
+	signal(SIGQUIT, sigquit);
 	basicboot();
 
-	// For debuging purposes.
-	spawn("/sbin/agetty", "tty2", "linux", "--noclear", NULL);
-	
-	if (evalfiles() == 0) {
-		message("starting services\n", NULL);
-		for (s = services->next; s; s = s->next) {
-			pthread_t pth;
-			if (pthread_create(&pth, NULL, runservice, (void *) s))
-				message("ERROR starting thread for service ", s->name, NULL);
-		}
-	} else {
-		message("ERROR evaluating files in /etc/msinit.d", NULL);
-		fallback();
-	}
+	mvlogfile();
 
-	message("basic boot complete and services should be starting.\n", NULL);
-	while (1) {
-		wait(-1);
-		sleep(1);
+	if (fork() == 0) {
+		message("forking for saftey reasons.", NULL);
+		if (evalfiles() == 0) {
+			message("starting services\n", NULL);
+			for (s = services->next; s; s = s->next) {
+				pthread_t pth;
+				if (pthread_create(&pth, NULL, runservice, (void *) s))
+					message("ERROR starting thread for service ", s->name, NULL);
+			}
+		} else {
+			message("ERROR evaluating files in /etc/msinit.d", NULL);
+			fallback();
+		}
+
+		message("\n\nthread starter going into infinite sleep.\n", NULL);
+		while (1)
+			sleep(1000);
+	} else {
+		message("\n\nmain process going into infinite sleep.\n", NULL);
+		while (1) 
+			sleep(1000);
 	}
 
 	return 0;

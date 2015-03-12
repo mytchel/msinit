@@ -1,4 +1,3 @@
-need=udev
 need=acpid
 exec=/usr/bin/lowbatteryd
 exits=n

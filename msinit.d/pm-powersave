@@ -1,2 +1,2 @@
-need=udev
+need=eudev
 exec=/usr/sbin/pm-powersave

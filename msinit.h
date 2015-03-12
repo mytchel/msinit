@@ -1,5 +1,6 @@
 #define SERVICEDIR "/etc/msinit.d"
 #define LOGFILE "/var/log/msinit"
+#define BACKLOGFILE "/var/log/msinit.old"
 
 #define RUNNING 0
 #define SHUTDOWN 1
