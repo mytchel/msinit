@@ -15,26 +15,26 @@ struct Service {
 	char *exec[EXECMAX];
 	pid_t pid;	
 	int exits, restart;
-	int started, ready;
+	int running, ready, started;
 	int nneed;
 	Service *need[NEEDMAX]; /* Wont start until all in here are ready. */
 };
 
 void message(char *s, ...);
-
-Service *makeservice(); /* Makes and empty service struct. */
+void mvlogfile();
 
 void *runservice(void *a);
 Service *findservice(char *name);
+Service *makeservice(); /* Makes and empty service struct. */
 
 int spawn(char *prog, ...);
 
-void fleshservice(Service *s, FILE *file);
+void fulloutservice(Service *s, FILE *file);
 void evaldir(char *name, Service *s);
 int evalfiles();
 
-void shutdown();
+void shutdown(int r);
 void basicboot();
 
 void sigint(int num);
-void fallback();
+void sigquit(int num);

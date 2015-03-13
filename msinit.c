@@ -56,7 +56,16 @@ void *runservice(void *arg) {
 	int stat_val;
 	Service *s = (Service *) arg;
 
-	if (s->started) pthread_exit(NULL);
+	message(s->name, " has a new thread!", NULL);
+
+	/* If it is running no point in runnig it again. Else if it has been
+	 * started and exits then no point running it again. And not much
+	 * point starting it if I'm about to shut down. */
+	if (state == SHUTDOWN || s->running || (s->exits && s->started))
+			pthread_exit(NULL);
+
+	s->started = s->running = 1;
+	s->ready = 0;
 
 	for (i = 0; i < s->nneed; i++) {
 		while (!s->need[i]->ready) {
@@ -65,18 +74,15 @@ void *runservice(void *arg) {
 			else
 				usleep(10000);
 		}
-		if (s->started) pthread_exit(NULL);
 	}
 
-	if (state == SHUTDOWN || s->started) pthread_exit(NULL);
-	else s->started = 1;
-
-	s->pid = fork();
-	if (s->pid == -1) {
-		message("ERROR forking for ", s->name, NULL);
+	if (!s->exec[0]) {
+		message(s->name, " has no exec feild! setting ready.", NULL);
+		s->ready = 1;
 		pthread_exit(NULL);
 	}
 
+	s->pid = fork();
 	if (s->pid == 0) {
 		message("fork: ", s->name, NULL);
 		execvp(s->exec[0], s->exec);
@@ -90,21 +96,24 @@ void *runservice(void *arg) {
 		waitpid(s->pid, &stat_val, 0);
 		
 		if (WIFEXITED(stat_val)) {
-			s->started = 0;
 			if (s->exits) {
 				s->ready = 1;
 			} else {
 				s->ready = 0;
-				message(s->name, "FAILED!", NULL);
+				message("ERROR: ", s->name, " EXITED!", NULL);
 			}
-
-			if (s->restart)
-				runservice((void *) s);
-
 			break;
-		}
-		sleep(1);
+		} else if (WIFSIGNALED(stat_val)) {
+			s->ready = 0;
+			message(s->name, " WAS KILLED BY A SIGNAL!", NULL);
+			break;
+		} else /* Dont go into infite loops listening to nothing & wasting cpu */
+			sleep(1);
 	}
+
+	s->running = 0;
+	if (s->restart)
+		runservice((void *) s);
 
 	pthread_exit(NULL);
 }
@@ -120,13 +129,9 @@ Service *findservice(char *name) {
 Service *makeservice() {
 	Service *s = malloc(sizeof(Service));
 	s->name = malloc(sizeof(char) * 256);
-	s->exec[0] = NULL;
-	s->exits = 1;
-	s->restart = 0;
-	s->started = s->ready = 0;
-	s->nneed = 0;
-	s->pid = -1;
 	s->next = NULL;
+	s->running = s->ready = s->started = 0;
+	s->pid = -1;
 	return s;
 }
 
@@ -151,11 +156,16 @@ int spawn(char *prog, ...) {
 	return 0;
 }
 
-void fleshservice(Service *s, FILE *file) {
+void fulloutservice(Service *s, FILE *file) {
 	char buf[256], *line, *var, *val;
 	int afters = 0;
 	int i;
 	char *c, *l, o;
+
+	s->exec[0] = NULL;
+	s->exits = 1;
+	s->restart = 0;
+	s->nneed = 0;
 	
 	while (fgets(buf, sizeof(buf), file) != NULL) {
 		for (line = &buf[0]; *line == ' ' || *line == '\t'; line++);
@@ -222,9 +232,17 @@ void evaldir(char *name, Service *s) {
 		return;
 	}
 
+	for (; s && s->next; s = s->next);
+
 	while ((dir = readdir(d)) != NULL) {
 		if (dir->d_type == DT_REG || dir->d_type == DT_LNK) {
 			/* Create a new service and add it to the list. */
+			if (findservice(dir->d_name)) {
+				message("already have a service called ", dir->d_name, 
+						" not adding another.", NULL);
+				continue;
+			}
+
 			s->next = makeservice();
 			s = s->next;
 			if (name)
@@ -249,9 +267,11 @@ int evalfiles() {
 	Service *s;
 	char fullname[256];
 
-	services = makeservice();
-	sprintf(services->name, "basic-boot");
-	services->ready = 1;
+	if (!services) {
+		services = makeservice();
+		sprintf(services->name, "basic-boot");
+		services->ready = 1;
+	}
 
 	evaldir(NULL, services);
 
@@ -260,7 +280,7 @@ int evalfiles() {
 		sprintf(fullname, "%s/%s", SERVICEDIR, s->name);
 		f = fopen(fullname, "r");
 		if (f) {
-			fleshservice(s, f);
+			fulloutservice(s, f);
 			fclose(f);
 		} else {
 			message("ERROR opening file ", fullname, NULL);
@@ -337,11 +357,6 @@ void sigquit(int num) {
 	shutdown(1);
 }
 
-void fallback() {
-	message("FALLING BACK TO GETTY", NULL);
-	spawn("/sbin/agetty", "tty1", "linux", "--noclear", NULL);
-}
-
 int main(int argc, char **argv) {
 	Service *s;
 
@@ -349,32 +364,28 @@ int main(int argc, char **argv) {
 
 	signal(SIGINT, sigint);
 	signal(SIGQUIT, sigquit);
-	basicboot();
 
+	basicboot();
 	mvlogfile();
 
 	if (fork() == 0) {
-		message("forking for saftey reasons.", NULL);
-		if (evalfiles() == 0) {
-			message("starting services\n", NULL);
+		message("going to eval service files...", NULL);
+		if (evalfiles()) {
+			message("\n\nERROR EVALUATING SERVICE FILES!\n", NULL);
+			spawn("/sbin/agetty", "tty1", "linux", "--noclear", NULL);
+		} else {
+			message("...evaluated. starting all services...", NULL);
+
 			for (s = services->next; s; s = s->next) {
 				pthread_t pth;
 				if (pthread_create(&pth, NULL, runservice, (void *) s))
 					message("ERROR starting thread for service ", s->name, NULL);
 			}
-		} else {
-			message("ERROR evaluating files in /etc/msinit.d", NULL);
-			fallback();
 		}
-
-		message("\n\nthread starter going into infinite sleep.\n", NULL);
-		while (1)
-			sleep(1000);
-	} else {
-		message("\n\nmain process going into infinite sleep.\n", NULL);
-		while (1) 
-			sleep(1000);
 	}
+	
+	while (1) 
+		sleep(1000);
 
 	return 0;
 }
