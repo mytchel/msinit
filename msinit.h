@@ -2,11 +2,8 @@
 #define LOGFILE "/var/log/msinit"
 #define BACKLOGFILE "/var/log/msinit.old"
 
-#define RUNNING 0
-#define SHUTDOWN 1
-
 #define EXECMAX 15
-#define NEEDMAX 5
+#define NEEDMAX 15
 
 typedef struct Service Service;
 struct Service {
@@ -20,9 +17,6 @@ struct Service {
 	Service *need[NEEDMAX]; /* Wont start until all in here are ready. */
 };
 
-void message(char *s, ...);
-void mvlogfile();
-
 void *runservice(void *a);
 Service *findservice(char *name);
 Service *makeservice(); /* Makes and empty service struct. */
@@ -33,7 +27,7 @@ void fulloutservice(Service *s, FILE *file);
 void evaldir(char *name, Service *s);
 int evalfiles();
 
-void shutdown(int r);
+void shutdown();
 void basicboot();
 
 void sigint(int num);

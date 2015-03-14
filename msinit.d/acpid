@@ -1,2 +1,4 @@
-need=eudev
-exec=/usr/sbin/acpid -c /etc/acpi/events
+need=udev
+exec=/usr/sbin/acpid -c /etc/acpi/events -f
+exits=n
+restart=y

@@ -6,11 +6,12 @@
 # So be careful about having an extra space on the end of a need.
 # Usefull part is that needs can have spaces in their names I suppose.
 need=hostname
-need=mount-home
-need=eudev
+need=udev
+need=mount/mount-home
+need=hwclock
 
 # This will be executed by execvp after all needs are ready.
-exec=/sbin/agetty tty3 linux -a nilp
+exec=/sbin/agetty tty1 linux --noclear
 
 # y(es) to re-exec when process exits. n(o) to disable. Default is no.
 restart=y

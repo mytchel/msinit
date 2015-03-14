@@ -1,0 +1,2 @@
+need=mount/mount-all
+exec=/bin/mount /dev/sdb3 /media

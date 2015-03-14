@@ -1,2 +1,2 @@
-need=lo-addr
+need=lo/lo-addr
 exec=/sbin/ip link set lo up

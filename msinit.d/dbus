@@ -1,4 +1,0 @@
-need=eudev
-exec=/usr/sbin/dbus-daemon --system --nopidfile --nofork
-exits=n
-restart=y

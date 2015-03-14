@@ -1,0 +1,1 @@
+exec=/bin/mount -n -t tmpfs -o mode=0755,nosuid,nodev,exec tmpfs /run

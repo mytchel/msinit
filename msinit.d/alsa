@@ -1,2 +1,2 @@
-need=eudev
+need=udev
 exec=/usr/sbin/alsactl restore

@@ -1,3 +1,0 @@
-# Totally not renamed to eudev so it would find the file faster and 
-# make me think it boots quicker.
-exec=/sbin/start_udev

@@ -7,7 +7,7 @@ Uses files in /etc/msinit.d to determine what to start and in what order.
 Things can start in parallel.
 
 Don't even attempt to boot without looking through code and msinit.d files and
-changing things. (ie: the autoboot to my login, you probably don't want that.)
+changing things.
 
 I will try make this easy.
 
@@ -19,6 +19,16 @@ Notes
 -----
 Send SIGINT to pid 1 to shutdown. SIGQUIT to restart.
 
-Reads files and files in directories in /etc/msinit.d to determine what to do. 
 Have a look at msinit.d/getty to get an idea of how to use it. Dot files are 
-ignored.
+ignored. Sub dirs are fine. When refering to services in subdirs (even from 
+other services in the sub dir) give the path from /etc/msinit.d/ to the servie.
+ie; /etc/msinit.d/mount/mount-home is refered to as mount/mount-home.
+
+It is usefull to make services non-forking then set exits=n and restart=y.
+msinit will now restart the service when you kill it. Easy as.
+
+Not much is done by pid 1. Pretty much just setting signal handlers mounting 
+/proc, /sys, remount / rw, forks, then sleeps forever. The fork then manages 
+the services, each in their own thread. 
+
+Uses syslogd.
