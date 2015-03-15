@@ -332,7 +332,6 @@ void sigquit(int sig) {
 }
 
 int main(int argc, char **argv) {
-	signal(SIGCHLD, SIG_IGN);
 	signal(SIGINT, sigint);
 	signal(SIGQUIT, sigquit);
 
@@ -354,6 +353,8 @@ int main(int argc, char **argv) {
 			}
 		}
 		closelog();
+	} else {
+		signal(SIGCHLD, SIG_IGN);
 	}
 
 	printf("going into infinite sleep\n");

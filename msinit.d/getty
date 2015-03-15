@@ -11,7 +11,7 @@ need=mount/mount-home
 need=hwclock
 
 # This will be executed by execvp after all needs are ready.
-exec=/sbin/agetty tty1 linux --noclear
+exec=/sbin/agetty tty1 linux --noclear -a nilp
 
 # y(es) to re-exec when process exits. n(o) to disable. Default is no.
 restart=y
