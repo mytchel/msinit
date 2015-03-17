@@ -1,0 +1,5 @@
+# No rush.
+need=mount/all
+exec=/sbin/dhcpcd -A -B
+exits=n
+restart=y

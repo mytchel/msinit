@@ -11,19 +11,26 @@
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/types.h>
-#include <syslog.h>
 
 #include "msinit.h"
 
 Service *services;
 
+void stopservice(Service *s) {
+	s->pid = 0;
+	s->running = 0;
+	pthread_exit(NULL);
+}
+
 void *runservice(void *arg) {
 	int i;
 	int stat_val;
 	Service *s = (Service *) arg;
+	char fullname[256];
+	FILE *f;
 
 	if (!services->running || s->running || (s->exits && s->started))
-		pthread_exit(NULL);
+		stopservice(s);
 
 	s->started = s->running = 1;
 	s->ready = 0;
@@ -39,50 +46,53 @@ void *runservice(void *arg) {
 
 	if (!s->exec[0]) {
 		s->ready = 1;
-		pthread_exit(NULL);
+		stopservice(s);
 	}
 
 	s->pid = fork();
 	if (s->pid == 0) {
-		syslog(LOG_NOTICE, "starting %s\n", s->name);
 		execvp(s->exec[0], s->exec);
-		syslog(LOG_ALERT, "ERROR execvp for has exited!\n", s->name);
+		fprintf(stderr, "msinit: execvp for has exited!\n", s->name);
 		exit(0);
 	}	
 
 	if (!s->exits) {
+		printf("msinit: %s ready\n", s->name);
 		s->ready = 1;
-		syslog(LOG_NOTICE, "%s ready.\n", s->name);
 	}
 
-	while (1) {
+	while (s->running) {
 		waitpid(s->pid, &stat_val, 0);
 		
 		if (WIFEXITED(stat_val)) {
 			if (s->exits) {
+				printf("msinit: %s ready\n", s->name);
 				s->ready = 1;
-				syslog(LOG_NOTICE, "%s ready\n", s->name);
 			} else {
 				s->ready = 0;
-				syslog(LOG_WARNING, "ERROR: %s EXITED!\n", s->name);
+				fprintf(stderr, "msinit: %s exited.\n", s->name);
 			}
+			s->running = 0;
 			break;
 		} else if (WIFSIGNALED(stat_val)) {
+			fprintf(stderr, "msinit: %s KILLED\n", s->name);
 			s->ready = 0;
-			syslog(LOG_NOTICE, "%s WAS KILLED BY A SIGNAL!\n", s->name);
+			s->running = 0;
 			break;
 		} else /* Dont go into infite loops listening to nothing & wasting cpu */
 			sleep(1);
 	}
+		
+	printf("msinit: %s exited\n", s->name);
 
 	s->pid = 0;
-	s->running = 0;
 	if (s->restart) {
-		syslog(LOG_NOTICE, "RESTARTING %s\n", s->name);
-		runservice((void *) s);
+		fprintf(stderr, "msinit: restarting %s\n", s->name);
+		if (!updateservice(s))
+			runservice((void *) s);
 	}
 
-	pthread_exit(NULL);
+	stopservice(s);
 }
 
 Service *findservice(char *name) {
@@ -123,7 +133,9 @@ int spawn(char *prog, ...) {
 	return 0;
 }
 
-void fulloutservice(Service *s, FILE *file) {
+int updateservice(Service *s) {
+	FILE *file;
+	char path[256];
 	char buf[256], *line, *var, *val;
 	int afters = 0;
 	int i;
@@ -133,7 +145,12 @@ void fulloutservice(Service *s, FILE *file) {
 	s->exits = 1;
 	s->restart = 0;
 	s->nneed = 0;
-	
+
+	sprintf(path, "%s/%s", SERVICEDIR, s->name);
+	file = fopen(path, "r");
+	if (!file)
+		return 1;
+
 	while (fgets(buf, sizeof(buf), file) != NULL) {
 		for (line = &buf[0]; *line == ' ' || *line == '\t'; line++);
 
@@ -167,7 +184,7 @@ void fulloutservice(Service *s, FILE *file) {
 
 		} else if (strcmp(var, "need") == 0) {
 			if (s->nneed >= NEEDMAX) {
-				syslog(LOG_ALERT, 
+				fprintf(stderr, 
 						"%s service file has exceded max number of needs.", 
 						s->name);
 				continue;
@@ -176,57 +193,43 @@ void fulloutservice(Service *s, FILE *file) {
 			if (n)
 				s->need[s->nneed++] = n;
 			else
-				syslog(LOG_NOTICE, 
-						"ERROR, %s has need %s that could not be found.\n", 
+				fprintf(stderr,
+						"msinit: ERROR, %s has need %s that could not be found.\n", 
 						s->name, val);
 		} else if (strcmp(var, "exits") == 0) {
 			s->exits = *val == 'y';
 		} else if (strcmp(var, "restart") == 0) {
 			s->restart = *val == 'y';
 		} else {
-			syslog(LOG_ALERT, "ERROR, unknown thing service file %s\n", 
+			fprintf(stderr, "msinit: ERROR, unknown thing service file %s\n", 
 					s->name);
 		}
 	}
+	fclose(file);
 }
 
-void evaldir(char *name, Service *s) {
+void evaldir(char *dirname, Service *s) {
 	DIR *d;
 	struct dirent *dir;
-	char fullname[256];
+	char name[256];
 
-	if (name)
-		sprintf(fullname, "%s/%s", SERVICEDIR, name);
-	else
-		sprintf(fullname, SERVICEDIR);
-	
-	d = opendir(fullname);
+	sprintf(name, "%s/%s", SERVICEDIR, dirname);
+	d = opendir(name);
 
 	if (!d) {
-		syslog(LOG_NOTICE, "ERROR opening service dir %s\n", name);
+		fprintf(stderr, "msinit: ERROR opening service dir %s\n", name);
 		return;
 	}
 
 	while ((dir = readdir(d)) != NULL) {
 		if (dir->d_type == DT_REG || dir->d_type == DT_LNK) {
-			if (name)
-				sprintf(fullname, "%s/%s", name, dir->d_name);
-			else
-				sprintf(fullname, "%s", dir->d_name);
-
-			/* Create a new service and add it to the list. */
-			if (findservice(fullname))
-				continue;
-
+			sprintf(name, "%s%s", dirname, dir->d_name);
 			s->next = makeservice();
 			s = s->next;
-			strcpy(s->name, fullname);
+			strcpy(s->name, name);
 		} else if (dir->d_type == DT_DIR && dir->d_name[0] != '.') {
-			if (name)
-				sprintf(fullname, "%s/%s", name, dir->d_name);
-			else
-				sprintf(fullname, "%s", dir->d_name);
-			evaldir(fullname, s);
+			sprintf(name, "%s%s/", dirname, dir->d_name);
+			evaldir(name, s);
 			for (; s && s->next; s = s->next);
 		}
 	}
@@ -235,9 +238,7 @@ void evaldir(char *name, Service *s) {
 }
 
 int evalfiles() {
-	FILE *f;
 	Service *s;
-	char fullname[256];
 
 	if (!services) {
 		services = makeservice();
@@ -245,20 +246,10 @@ int evalfiles() {
 		services->running = 1;
 	}
 
-	evaldir(NULL, services);
+	evaldir("", services);
 
-	/* Flesh out the services. */
-	for (s = services->next; s; s = s->next) {	
-		sprintf(fullname, "%s/%s", SERVICEDIR, s->name);
-		f = fopen(fullname, "r");
-		if (f) {
-			fulloutservice(s, f);
-			fclose(f);
-		} else {
-			syslog(LOG_NOTICE, "ERROR opening file %s\n", fullname);
-			return 1;
-		}
-	}
+	for (s = services->next; s; s = s->next) 
+		updateservice(s);
 
 	return 0;
 }
@@ -267,10 +258,9 @@ void shutdown() {
 	if (services)
 		services->running = 0;
 
-	openlog("msinit", LOG_PID|LOG_PERROR, LOG_USER);
-	
 	printf("\nCOMING DOWN.\n");
-	syslog(LOG_CRIT, "COMING DOWN\n");
+
+	sync();
 
 	printf("sending all processes TERM signal...\n");
 	kill(-1, SIGTERM);
@@ -283,19 +273,20 @@ void shutdown() {
 	
 	sync();
 
-	syslog(LOG_NOTICE, "turning off swap.\n");
+	printf("swapoff\n");
 	spawn("/sbin/swapoff", "-a", NULL);
-	syslog(LOG_NOTICE, "unmounting all file systems.\n");
-	spawn("/bin/umount", "-a", "-d", "-r", 
-			"-t", "nosysfs,noproc,nodevtmpfs", NULL);
 	sleep(1);
+	printf("/bin/umount -a -r\n");
 	spawn("/bin/umount", "-a", "-r", NULL);
-	sleep(1);
+	sleep(2);
+	printf("/bin/mount -o remount,ro /\n");
 	spawn("/bin/mount", "-o", "remount,ro", "/", NULL);
-	sleep(1);
-	
-	closelog();
+
+	sync();
+
+	sleep(3);
 }
+
 void basicboot() {
 	pid_t p;
 	int stat_val;
@@ -310,9 +301,6 @@ void basicboot() {
 		exit(1);
 	}
 	
-	// For debuging purposes.
-	spawn("/sbin/agetty", "tty2", "linux", "--noclear", NULL);
-
 	p = spawn("/bin/mount", "-o", "remount,rw", "/", NULL);
 	do {
 		waitpid(p, &stat_val, 0);
@@ -332,34 +320,27 @@ void sigquit(int sig) {
 }
 
 int main(int argc, char **argv) {
+	Service *s;
+
 	signal(SIGINT, sigint);
 	signal(SIGQUIT, sigquit);
 
 	basicboot();
 
 	if (fork() == 0) {
-		openlog("msinit", LOG_PID|LOG_PERROR, LOG_USER);
 		if (evalfiles()) {
-			syslog(LOG_EMERG, "ERROR EVALUATING SERVICE FILES!\n");
-			spawn("/sbin/agetty", "tty1", "linux", "--noclear", NULL);
+			FALLBACK;
 		} else {
-			syslog(LOG_NOTICE, "...evaluated. starting all services...\n");
-			Service *s;
 			for (s = services->next; s; s = s->next) {
-				pthread_t pth;
-				if (pthread_create(&pth, NULL, runservice, (void *) s))
-					syslog(LOG_ALERT, 
-							"ERROR starting thread for service %s\n", s->name);
+				pthread_create(&s->thread, NULL, runservice, (void *) s);
 			}
 		}
-		closelog();
 	} else {
 		signal(SIGCHLD, SIG_IGN);
 	}
 
-	printf("going into infinite sleep\n");
 	while (1) 
-		sleep(1000);
+		sleep(100000);
 
 	return 0;
 }

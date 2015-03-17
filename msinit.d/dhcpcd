@@ -1,0 +1,6 @@
+need=hostname
+need=udev
+need=lo/up
+exec=/sbin/dhcpcd -A -B
+exits=n
+restart=y

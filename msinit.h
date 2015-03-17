@@ -1,6 +1,5 @@
+#define FALLBACK spawn("/sbin/sulogin", "-p", NULL)
 #define SERVICEDIR "/etc/msinit.d"
-#define LOGFILE "/var/log/msinit"
-#define BACKLOGFILE "/var/log/msinit.old"
 
 #define EXECMAX 15
 #define NEEDMAX 15
@@ -10,20 +9,22 @@ struct Service {
 	Service *next; /* For main linked list. */
 	char *name;
 	char *exec[EXECMAX];
-	pid_t pid;	
+	pid_t pid;
 	int exits, restart;
 	int running, ready, started;
 	int nneed;
+	pthread_t thread;
 	Service *need[NEEDMAX]; /* Wont start until all in here are ready. */
 };
 
+void stopservice(Service *s);
 void *runservice(void *a);
 Service *findservice(char *name);
 Service *makeservice(); /* Makes and empty service struct. */
 
 int spawn(char *prog, ...);
 
-void fulloutservice(Service *s, FILE *file);
+int updateservice(Service *s);
 void evaldir(char *name, Service *s);
 int evalfiles();
 

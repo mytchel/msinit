@@ -1,1 +1,0 @@
-exec=/bin/mount -n -o remount,exec,nosuid,noatime,mode=0755,nr_blocks=2048,nr_inodes=16384 dev /dev

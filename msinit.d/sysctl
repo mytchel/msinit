@@ -1,0 +1,2 @@
+need=udev
+exec=/sbin/sysctl -p

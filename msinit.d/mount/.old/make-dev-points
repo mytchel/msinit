@@ -1,2 +1,0 @@
-need=mount/mount-dev
-exec=/bin/mkdir /dev/pts /dev/shm

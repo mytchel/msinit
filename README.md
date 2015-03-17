@@ -25,10 +25,9 @@ other services in the sub dir) give the path from /etc/msinit.d/ to the servie.
 ie; /etc/msinit.d/mount/mount-home is refered to as mount/mount-home.
 
 It is usefull to make services non-forking then set exits=n and restart=y.
-msinit will now restart the service when you kill it. Easy as.
+Now when this service exits msinit will re eval the service file (so you can 
+change is if you made a mistake) and restart the service.
 
 Not much is done by pid 1. Pretty much just setting signal handlers mounting 
 /proc, /sys, remount / rw, forks, then sleeps forever. The fork then manages 
 the services, each in their own thread. 
-
-Uses syslogd.

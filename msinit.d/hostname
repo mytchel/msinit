@@ -1,1 +1,3 @@
+# Probably don't need this but I have no idea what has broken.
+need=udev
 exec=/bin/hostname madness

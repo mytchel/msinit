@@ -5,13 +5,13 @@
 # However whitespace at the end of the line is not.
 # So be careful about having an extra space on the end of a need.
 # Usefull part is that needs can have spaces in their names I suppose.
-need=hostname
 need=udev
-need=mount/mount-home
+need=hostname
+need=mount/most
 need=hwclock
 
 # This will be executed by execvp after all needs are ready.
-exec=/sbin/agetty tty1 linux --noclear -a nilp
+exec=/sbin/agetty --noclear 38400 tty1 linux -a nilp
 
 # y(es) to re-exec when process exits. n(o) to disable. Default is no.
 restart=y
