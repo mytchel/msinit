@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <string.h>
 #include <pthread.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
@@ -23,7 +24,7 @@ void stopservice(Service *s) {
 }
 
 void *runservice(void *arg) {
-	int i;
+	int i, con;
 	int stat_val;
 	Service *s = (Service *) arg;
 	char fullname[256];
@@ -51,13 +52,14 @@ void *runservice(void *arg) {
 
 	s->pid = fork();
 	if (s->pid == 0) {
+		printf("msinit: %s\n", s->name);
+		setsid();
 		execvp(s->exec[0], s->exec);
 		fprintf(stderr, "msinit: execvp for has exited!\n", s->name);
 		exit(0);
 	}	
 
 	if (!s->exits) {
-		printf("msinit: %s ready\n", s->name);
 		s->ready = 1;
 	}
 
@@ -65,31 +67,28 @@ void *runservice(void *arg) {
 		waitpid(s->pid, &stat_val, 0);
 		
 		if (WIFEXITED(stat_val)) {
-			if (s->exits) {
-				printf("msinit: %s ready\n", s->name);
+			if (s->exits) 
 				s->ready = 1;
-			} else {
+			else
 				s->ready = 0;
-				fprintf(stderr, "msinit: %s exited.\n", s->name);
-			}
+
 			s->running = 0;
 			break;
 		} else if (WIFSIGNALED(stat_val)) {
-			fprintf(stderr, "msinit: %s KILLED\n", s->name);
 			s->ready = 0;
 			s->running = 0;
 			break;
 		} else /* Dont go into infite loops listening to nothing & wasting cpu */
 			sleep(1);
 	}
-		
-	printf("msinit: %s exited\n", s->name);
 
 	s->pid = 0;
 	if (s->restart) {
 		fprintf(stderr, "msinit: restarting %s\n", s->name);
-		if (!updateservice(s))
+		if (!updateservice(s)) {
+			sleep(1); /* Don't go into uninteractable loops of restarting. */
 			runservice((void *) s);
+		}
 	}
 
 	stopservice(s);
@@ -110,27 +109,6 @@ Service *makeservice() {
 	s->running = s->ready = s->started = 0;
 	s->pid = 0;
 	return s;
-}
-
-int spawn(char *prog, ...) {
-	char *argv[10];
-	va_list ap;
-	int i;
-	pid_t pid;
-
-	pid = fork();
-	if (pid > 0) return pid;
-
-	argv[0] = prog;
-	va_start(ap, prog);
-	for (i = 1; i < EXECMAX && (argv[i] = va_arg(ap, char *)) != NULL; i++);
-	argv[i] = NULL;
-	va_end(ap);
-
-	execvp(argv[0], argv);
-	exit(1);
-
-	return 0;
 }
 
 int updateservice(Service *s) {
@@ -237,7 +215,7 @@ void evaldir(char *dirname, Service *s) {
 	closedir(d);
 }
 
-int evalfiles() {
+void evalfiles() {
 	Service *s;
 
 	if (!services) {
@@ -250,8 +228,28 @@ int evalfiles() {
 
 	for (s = services->next; s; s = s->next) 
 		updateservice(s);
+}
 
-	return 0;
+int spawn(char *prog, ...) {
+	char *argv[10];
+	va_list ap;
+	int i;
+	pid_t pid;
+
+	if ((pid = fork()) == 0) {
+		argv[0] = prog;
+		va_start(ap, prog);
+		for (i = 1; i < EXECMAX && (argv[i] = va_arg(ap, char *)) != NULL; i++);
+		argv[i] = NULL;
+		va_end(ap);
+
+		execvp(argv[0], argv);
+		exit(1);
+
+		return 0;
+	} else {
+		return pid;
+	}
 }
 
 void shutdown() {
@@ -267,7 +265,7 @@ void shutdown() {
 	sleep(5);
 	printf("sending all processes KILL signal...\n");
 	kill(-1, SIGKILL);
-	sleep(1);
+	sleep(3);
 
 	spawn("/sbin/hwclock", "--systohc", NULL);
 	
@@ -291,56 +289,52 @@ void basicboot() {
 	pid_t p;
 	int stat_val;
 
-	if (mount("none", "/proc", "proc", 0, "") != 0) {
-		printf("ERROR mounting /proc\n");
-		exit(1);
-	}
-
-	if (mount("none", "/sys", "sysfs", 0, "") != 0) {
-		printf("ERROR mounting /sys\n");
-		exit(1);
-	}
-	
+	mount("none", "/proc", "proc", 0, "");
+	mount("none", "/sys", "sysfs", 0, "");
 	p = spawn("/bin/mount", "-o", "remount,rw", "/", NULL);
 	do {
 		waitpid(p, &stat_val, 0);
 	} while (!WIFEXITED(stat_val));
 }
 
-void sigint(int sig) {
+void inthandler(int sig) {
 	shutdown();
 	reboot(RB_POWER_OFF);
 	exit(0);
 }
 
-void sigquit(int sig) {
+void quithandler(int sig) {
 	shutdown();
 	reboot(RB_AUTOBOOT);
 	exit(0);
 }
 
+void chldhandler(int sig) {
+	/* What the hell is the difference between doing nothing and SIG_IGN? 
+	 * Doesn't get into boot if SIGCHLD set to SIG_IGN */
+}
+
 int main(int argc, char **argv) {
 	Service *s;
+	int f;
+	/* Ignore all signals */
+	for (f = 1; f <= NSIG; f++)
+		signal(f, SIG_IGN);
 
-	signal(SIGINT, sigint);
-	signal(SIGQUIT, sigquit);
+	signal(SIGINT, inthandler);
+	signal(SIGQUIT, quithandler);
+	signal(SIGCHLD, chldhandler);
 
 	basicboot();
 
 	if (fork() == 0) {
-		if (evalfiles()) {
-			FALLBACK;
-		} else {
-			for (s = services->next; s; s = s->next) {
-				pthread_create(&s->thread, NULL, runservice, (void *) s);
-			}
-		}
-	} else {
-		signal(SIGCHLD, SIG_IGN);
+		evalfiles();
+		for (s = services->next; s; s = s->next) 
+			pthread_create(&s->thread, NULL, runservice, (void *) s);
 	}
 
 	while (1) 
-		sleep(100000);
+		sleep(1000);
 
 	return 0;
 }

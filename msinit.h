@@ -1,5 +1,6 @@
 #define FALLBACK spawn("/sbin/sulogin", "-p", NULL)
-#define SERVICEDIR "/etc/msinit.d"
+#define SERVICEDIR "/etc/msinit.d/"
+#define SYSSERVDIR "/etc/msinit/sys.d"
 
 #define EXECMAX 15
 #define NEEDMAX 15
@@ -26,10 +27,11 @@ int spawn(char *prog, ...);
 
 int updateservice(Service *s);
 void evaldir(char *name, Service *s);
-int evalfiles();
+void evalfiles();
 
 void shutdown();
 void basicboot();
 
-void sigint(int num);
-void sigquit(int num);
+void inthandler(int num);
+void quithandler(int num);
+void chldhandler(int num);

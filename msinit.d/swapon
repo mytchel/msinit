@@ -1,1 +1,2 @@
+need=udev
 exec=/sbin/swapon -a

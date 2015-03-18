@@ -1,2 +1,3 @@
-need=mount/most
+need=udev
+need=mount-most
 exec=/bin/mount /dev/sdb3 /media
