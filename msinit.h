@@ -1,6 +1,5 @@
 #define FALLBACK spawn("/sbin/sulogin", "-p", NULL)
 #define SERVICEDIR "/etc/msinit.d/"
-#define SYSSERVDIR "/etc/msinit/sys.d"
 
 #define EXECMAX 15
 #define NEEDMAX 15

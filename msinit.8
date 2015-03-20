@@ -1,0 +1,39 @@
+.\" Manpage for msinit
+.\" Contact mytchel at openmailbox dot org to correct erros or typos.
+.TH man 8 "20 March 2015" "1.0" msinit man page"
+.SH NAME
+msinit - simple init system
+.SH DESCRIPTION
+msinit is a simple init system that executes commands in parrarel based on the readiness of commands the command needs to have run before it.
+
+Send SIGINT to shutdown. SIGQUIT to reboot.
+
+.SH CONFIG
+Once msinit has mounted /proc, /sys and remounted / as rw it will read all files not starting with a dot in the config dir (/etc/msinit.d by default). These files should be in a format like the following. Order of variables does not matter. Not does white space before variables, White space after values will affect the result though. All variables are optionable.
+
+.nf
+[\fBa-service\fR]
+# This is a comment. And line that's first non whitespace character is a # is ignored.
+
+# So are empty lines
+need=another\-service
+need=dir/service\-in\-sub\-dir
+exec=/bin/runme \-what="ever options you want" 
+restart=n
+exits=y
+.fi
+
+When referring to servicies in sub dirs refer to them by there path relative to the config dir.
+
+This example service will not be started until both "another-service" and "dir/service-in-sub-dir" are ready.
+
+Ready is defined differently depending on the exec and exits variable. If exits is y (or any word/sentance starting with a y) this service is ready when exec exits. If it is set to n (or anything so long as the first character is not y) then the service is considered ready once it has been started. If exec is not set then the service is considered ready once all it's needs are ready.
+
+If restart is set to y (same rules as for exits) exec will be called again if/when exec is killed/exits.
+
+Explained? Probably not.
+
+.SH BUGS
+Probably. When you find them tell me.
+.SH AUTHOR
+Mytchel Hammond (mytchel at openmailbox dot org)

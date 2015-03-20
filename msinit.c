@@ -41,7 +41,7 @@ void *runservice(void *arg) {
 			if (s->need[i]->pid > 1) 
 				waitpid(s->need[i]->pid, NULL, 0);
 			else
-				usleep(10000);
+				usleep(1000);
 		}
 	}
 
@@ -78,13 +78,13 @@ void *runservice(void *arg) {
 			s->ready = 0;
 			s->running = 0;
 			break;
-		} else /* Dont go into infite loops listening to nothing & wasting cpu */
-			sleep(1);
+		} else
+			usleep(1000);
 	}
 
 	s->pid = 0;
 	if (s->restart) {
-		fprintf(stderr, "msinit: restarting %s\n", s->name);
+		printf("msinit: restarting %s\n", s->name);
 		if (!updateservice(s)) {
 			sleep(1); /* Don't go into uninteractable loops of restarting. */
 			runservice((void *) s);
@@ -220,7 +220,6 @@ void evalfiles() {
 
 	if (!services) {
 		services = makeservice();
-		sprintf(services->name, "basic-boot");
 		services->running = 1;
 	}
 
@@ -243,6 +242,7 @@ int spawn(char *prog, ...) {
 		argv[i] = NULL;
 		va_end(ap);
 
+		setsid();
 		execvp(argv[0], argv);
 		exit(1);
 
@@ -310,8 +310,7 @@ void quithandler(int sig) {
 }
 
 void chldhandler(int sig) {
-	/* What the hell is the difference between doing nothing and SIG_IGN? 
-	 * Doesn't get into boot if SIGCHLD set to SIG_IGN */
+	while (waitpid(-1, NULL, WNOHANG) > 0);
 }
 
 int main(int argc, char **argv) {
