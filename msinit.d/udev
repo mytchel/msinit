@@ -1,1 +1,1 @@
-exec=/sbin/start_udev
+exec=/sbin/start_min_udev

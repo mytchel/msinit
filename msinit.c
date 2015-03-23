@@ -201,6 +201,7 @@ void evaldir(char *dirname, Service *s) {
 
 	while ((dir = readdir(d)) != NULL) {
 		if (dir->d_type == DT_REG || dir->d_type == DT_LNK) {
+			if (dir->d_name[0] == '.') continue;
 			sprintf(name, "%s%s", dirname, dir->d_name);
 			s->next = makeservice();
 			s = s->next;
