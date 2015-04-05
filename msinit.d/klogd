@@ -1,0 +1,2 @@
+need=syslogd
+exec=/usr/sbin/klogd -c 4

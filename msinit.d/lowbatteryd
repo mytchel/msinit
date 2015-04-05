@@ -1,4 +1,5 @@
 need=acpid
+env=PATH=/usr/sbin:/usr/bin:/bin DISPLAY=:0 XAUTHORITY=/home/nilp/.Xauthority
 exec=/usr/bin/lowbatteryd
 exits=n
 restart=y

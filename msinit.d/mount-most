@@ -1,2 +1,2 @@
 need=udev
-exec=/bin/mount -a
+exec=/bin/mount -a -F

@@ -12,6 +12,7 @@
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/types.h>
+#include <syslog.h>
 
 #include "msinit.h"
 
@@ -52,10 +53,15 @@ void *runservice(void *arg) {
 
 	s->pid = fork();
 	if (s->pid == 0) {
-		printf("msinit: %s\n", s->name);
+		syslog(LOG_NOTICE, "%s", s->name);
 		setsid();
-		execvp(s->exec[0], s->exec);
-		fprintf(stderr, "msinit: execvp for has exited!\n", s->name);
+		
+		if (s->env) 
+			execvpe(s->exec[0], s->exec, s->env);
+		else
+			execvp(s->exec[0], s->exec);
+
+		syslog(LOG_ALERT, "execvp for has exited!", s->name);
 		exit(0);
 	}	
 
@@ -84,7 +90,7 @@ void *runservice(void *arg) {
 
 	s->pid = 0;
 	if (s->restart) {
-		printf("msinit: restarting %s\n", s->name);
+		syslog(LOG_ALERT, "restarting %s", s->name);
 		if (!updateservice(s)) {
 			sleep(1); /* Don't go into uninteractable loops of restarting. */
 			runservice((void *) s);
@@ -103,12 +109,38 @@ Service *findservice(char *name) {
 }
 
 Service *makeservice() {
+	int i;
 	Service *s = malloc(sizeof(Service));
 	s->name = malloc(sizeof(char) * 256);
 	s->next = NULL;
 	s->running = s->ready = s->started = 0;
 	s->pid = 0;
+	for (i = 0; i < MAXLEN; i++) s->exec[i] = s->env[i] = NULL;
 	return s;
+}
+
+void splittoarray(char *array[MAXLEN], char *str) {
+	char *c, *l, o;
+	int i = 0;
+	c = l = str;
+	do {
+		if (*c == '"' || *c == '\'') {
+			o = *c;
+			for (c++; c && *c != o; c++);
+		}
+
+		if (*c == '\\') c += 2;
+
+		if (*c == ' ' || *c == '\t' || !*c) {
+			if (array[i]) free(array[i]);
+			array[i] = calloc(c - l + 1, sizeof(char));
+			strncpy(array[i], l, c - l);
+			array[++i] = NULL;
+
+			for (l = c; *l == ' ' || *l == '\t' || !l; l++);
+			c = l;
+		}
+	} while (*(c++) && i < MAXLEN - 1);
 }
 
 int updateservice(Service *s) {
@@ -116,8 +148,7 @@ int updateservice(Service *s) {
 	char path[256];
 	char buf[256], *line, *var, *val;
 	int afters = 0;
-	int i;
-	char *c, *l, o;
+	int i, linen;
 
 	s->exec[0] = NULL;
 	s->exits = 1;
@@ -129,6 +160,7 @@ int updateservice(Service *s) {
 	if (!file)
 		return 1;
 
+	linen = 0;
 	while (fgets(buf, sizeof(buf), file) != NULL) {
 		for (line = &buf[0]; *line == ' ' || *line == '\t'; line++);
 
@@ -139,30 +171,14 @@ int updateservice(Service *s) {
 		val = strsep(&line, "\n");
 
 		if (strcmp(var, "exec") == 0) {
-			i = 0;
-			c = l = val;
-			do {
-				if (*c == '"' || *c == '\'') {
-					o = *c;
-					for (c++; c && *c != o; c++);
-				}
+			splittoarray(s->exec, val);
 
-				if (*c == '\\') c += 2;
-				
-				if (*c == ' ' || *c == '\t' || !*c) {
-					s->exec[i] = malloc(sizeof(char) * (c - l + 1));
-					strncpy(s->exec[i], l, c - l);
-					s->exec[i][c - l] = '\0';
-					s->exec[++i] = NULL;
-
-					for (l = c; *l == ' ' || *l == '\t' || !l; l++);
-					c = l;
-				}
-			} while (*(c++) && i < EXECMAX - 1);
+		} else if (strcmp(var, "env") == 0) {
+			splittoarray(s->env, val);
 
 		} else if (strcmp(var, "need") == 0) {
-			if (s->nneed >= NEEDMAX) {
-				fprintf(stderr, 
+			if (s->nneed >= MAXLEN) {
+				syslog(LOG_CRIT,
 						"%s service file has exceded max number of needs.", 
 						s->name);
 				continue;
@@ -171,18 +187,23 @@ int updateservice(Service *s) {
 			if (n)
 				s->need[s->nneed++] = n;
 			else
-				fprintf(stderr,
-						"msinit: ERROR, %s has need %s that could not be found.\n", 
+				syslog(LOG_CRIT, "%s has need %s that could not be found.", 
 						s->name, val);
+
 		} else if (strcmp(var, "exits") == 0) {
 			s->exits = *val == 'y';
+
 		} else if (strcmp(var, "restart") == 0) {
 			s->restart = *val == 'y';
+
 		} else {
-			fprintf(stderr, "msinit: ERROR, unknown thing service file %s\n", 
-					s->name);
+			syslog(LOG_CRIT, "unknown thing service file %s:%i", 
+					s->name, linen);
 		}
+
+		linen++;
 	}
+
 	fclose(file);
 }
 
@@ -195,7 +216,7 @@ void evaldir(char *dirname, Service *s) {
 	d = opendir(name);
 
 	if (!d) {
-		fprintf(stderr, "msinit: ERROR opening service dir %s\n", name);
+		syslog(LOG_ALERT, "opening service dir %s", name);
 		return;
 	}
 
@@ -239,7 +260,7 @@ int spawn(char *prog, ...) {
 	if ((pid = fork()) == 0) {
 		argv[0] = prog;
 		va_start(ap, prog);
-		for (i = 1; i < EXECMAX && (argv[i] = va_arg(ap, char *)) != NULL; i++);
+		for (i = 1; i < MAXLEN && (argv[i] = va_arg(ap, char *)) != NULL; i++);
 		argv[i] = NULL;
 		va_end(ap);
 
@@ -257,45 +278,33 @@ void shutdown() {
 	if (services)
 		services->running = 0;
 
-	printf("\nCOMING DOWN.\n");
+	syslog(LOG_WARNING, "COMING DOWN.");
 
 	sync();
 
-	printf("sending all processes TERM signal...\n");
+	syslog(LOG_WARNING, "sending all processes TERM signal...");
 	kill(-1, SIGTERM);
 	sleep(5);
-	printf("sending all processes KILL signal...\n");
+	syslog(LOG_WARNING, "sending all processes KILL signal...");
 	kill(-1, SIGKILL);
 	sleep(3);
 
 	spawn("/sbin/hwclock", "--systohc", NULL);
-	
+
 	sync();
 
-	printf("swapoff\n");
+	syslog(LOG_WARNING, "swapoff");
 	spawn("/sbin/swapoff", "-a", NULL);
 	sleep(1);
-	printf("/bin/umount -a -r\n");
+	syslog(LOG_WARNING, "/bin/umount -a -r");
 	spawn("/bin/umount", "-a", "-r", NULL);
 	sleep(2);
-	printf("/bin/mount -o remount,ro /\n");
+	syslog(LOG_WARNING, "/bin/mount -o remount,ro /");
 	spawn("/bin/mount", "-o", "remount,ro", "/", NULL);
 
 	sync();
 
 	sleep(3);
-}
-
-void basicboot() {
-	pid_t p;
-	int stat_val;
-
-	mount("none", "/proc", "proc", 0, "");
-	mount("none", "/sys", "sysfs", 0, "");
-	p = spawn("/bin/mount", "-o", "remount,rw", "/", NULL);
-	do {
-		waitpid(p, &stat_val, 0);
-	} while (!WIFEXITED(stat_val));
 }
 
 void inthandler(int sig) {
@@ -325,10 +334,13 @@ int main(int argc, char **argv) {
 	signal(SIGQUIT, quithandler);
 	signal(SIGCHLD, chldhandler);
 
-	basicboot();
+	setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin", 1);
 
 	if (fork() == 0) {
+		openlog("msinit", LOG_NDELAY|LOG_PERROR, LOG_DAEMON);
+		syslog(LOG_NOTICE, "evaluating servies...");
 		evalfiles();
+		syslog(LOG_NOTICE, "starting services...");
 		for (s = services->next; s; s = s->next) 
 			pthread_create(&s->thread, NULL, runservice, (void *) s);
 	}

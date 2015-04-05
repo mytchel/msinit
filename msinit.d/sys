@@ -1,0 +1,1 @@
+exec=/bin/mount -t sysfs none /sys
