@@ -20,10 +20,13 @@ struct Service {
 
 void stopservice(Service *s);
 void *runservice(void *a);
-Service *findservice(char *name);
-Service *makeservice(); /* Makes and empty service struct. */
 
-void splittoarray(char *array[MAXLEN], char *str);
+Service *findservice(char *name);
+Service *makeservice(); /* Makes an empty service struct. */
+
+/* splits strings for env and exec into the array. */
+void splittoarray(char *array[MAXLEN], char *str); 
+
 int updateservice(Service *s);
 void evaldir(char *name, Service *s);
 void evalfiles();
@@ -36,3 +39,4 @@ void shutdown();
 void inthandler(int num);
 void quithandler(int num);
 void chldhandler(int num);
+

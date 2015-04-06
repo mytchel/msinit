@@ -1,7 +1,0 @@
-need=udev
-need=hostname
-need=hwclock
-need=mount-most
-exec=/sbin/agetty 38400 tty2 linux -a nilp
-exits=n
-restart=y

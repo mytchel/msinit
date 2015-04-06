@@ -1,2 +1,3 @@
+need=hwclock
 need=mount-most
 exec=/usr/sbin/crond -S -l info

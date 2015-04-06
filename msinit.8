@@ -9,7 +9,7 @@ msinit is a simple init system that executes commands in parrarel based on the r
 Send SIGINT to shutdown. SIGQUIT to reboot.
 
 .SH CONFIG
-Once msinit has mounted /proc, /sys and remounted / as rw it will read all files not starting with a dot in the config dir (/etc/msinit.d by default). These files should be in a format like the following. Order of variables does not matter. Not does white space before variables, White space after values will affect the result though. All variables are optionable.
+msinit reads all files not starting with . under /etc/msinit.d. From these files it works out what to start and when. These files should be formated like the following. Order of variables does not matter. Nor does white space before variables, White space after values will affect the result though (so you can have whitespace in services names). All variables are optionable.
 
 .nf
 [\fBa-service\fR]
@@ -24,15 +24,17 @@ restart=n
 exits=y
 .fi
 
-When referring to servicies in sub dirs refer to them by there path relative to the config dir.
+When referring to servicies in sub dirs refer to them by there path relative to the /etc/msinit.d/
 
 This example service will not be started until both "another-service" and "dir/service-in-sub-dir" are ready.
 
-Ready is defined differently depending on the exec and exits variable. If exits is y (or any word/sentance starting with a y) this service is ready when exec exits. If it is set to n (or anything so long as the first character is not y) then the service is considered ready once it has been started. If exec is not set then the service is considered ready once all it's needs are ready.
+Ready is defined differently depending on the exec and exits variable. If exits is y (or any string starting with a y) this service is ready when exec exits. If it is set to n (or anything so long as the first character is not y) then the service is considered ready once it has been started. If exec is not set then the service is considered ready once all it's needs are ready.
 
 If restart is set to y (same rules as for exits) exec will be called again if/when exec is killed/exits.
 
-Explained? Probably not.
+exec and env should be self explanatory. When msinit reads these lines it splits them up by spaces unless it finds a quote then it continues to the next quote, you can use backslashs to escape spaces (or anything other than newlines).
+
+Explained? Probably not. Good luck.
 
 .SH BUGS
 Probably. When you find them tell me.

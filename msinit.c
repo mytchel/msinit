@@ -37,6 +37,7 @@ void *runservice(void *arg) {
 	s->started = s->running = 1;
 	s->ready = 0;
 
+	/* wait on all needs */
 	for (i = 0; i < s->nneed; i++) {
 		while (!s->need[i]->ready) {
 			if (s->need[i]->pid > 1) 
@@ -46,6 +47,7 @@ void *runservice(void *arg) {
 		}
 	}
 
+	/* if no exec then stop here */
 	if (!s->exec[0]) {
 		s->ready = 1;
 		stopservice(s);
@@ -63,41 +65,38 @@ void *runservice(void *arg) {
 
 		syslog(LOG_ALERT, "execvp for has exited!", s->name);
 		exit(0);
-	}	
+	} else {
+		if (!s->exits) s->ready = 1;
 
-	if (!s->exits) {
-		s->ready = 1;
-	}
+		while (s->running) {
+			waitpid(s->pid, &stat_val, 0);
 
-	while (s->running) {
-		waitpid(s->pid, &stat_val, 0);
-		
-		if (WIFEXITED(stat_val)) {
-			if (s->exits) 
-				s->ready = 1;
-			else
-				s->ready = 0;
+			if (WIFEXITED(stat_val)) {
+				if (s->exits) 
+					s->ready = 1;
+				else
+					s->ready = 0;
 
-			s->running = 0;
-			break;
-		} else if (WIFSIGNALED(stat_val)) {
-			s->ready = 0;
-			s->running = 0;
-			break;
-		} else
-			usleep(1000);
-	}
+				s->running = 0;
+				break;
+			} else if (WIFSIGNALED(stat_val)) {
+				s->ready = s->running = 0;
+				break;
+			} else
+				usleep(1000);
+		}
 
-	s->pid = 0;
-	if (s->restart) {
-		syslog(LOG_ALERT, "restarting %s", s->name);
-		if (!updateservice(s)) {
-			sleep(1); /* Don't go into uninteractable loops of restarting. */
-			runservice((void *) s);
+		s->pid = 0;
+		if (s->restart) {
+			syslog(LOG_ALERT, "restarting %s", s->name);
+			if (!updateservice(s)) {
+				sleep(1); /* Don't go into uninteractable loops of restarting. */
+				runservice((void *) s);
+			}
+		} else {
+			stopservice(s);
 		}
 	}
-
-	stopservice(s);
 }
 
 Service *findservice(char *name) {
@@ -221,13 +220,13 @@ void evaldir(char *dirname, Service *s) {
 	}
 
 	while ((dir = readdir(d)) != NULL) {
+		if (dir->d_name[0] == '.') continue;
 		if (dir->d_type == DT_REG || dir->d_type == DT_LNK) {
-			if (dir->d_name[0] == '.') continue;
 			sprintf(name, "%s%s", dirname, dir->d_name);
 			s->next = makeservice();
 			s = s->next;
 			strcpy(s->name, name);
-		} else if (dir->d_type == DT_DIR && dir->d_name[0] != '.') {
+		} else if (dir->d_type == DT_DIR) {
 			sprintf(name, "%s%s/", dirname, dir->d_name);
 			evaldir(name, s);
 			for (; s && s->next; s = s->next);
@@ -240,10 +239,8 @@ void evaldir(char *dirname, Service *s) {
 void evalfiles() {
 	Service *s;
 
-	if (!services) {
-		services = makeservice();
-		services->running = 1;
-	}
+	services = makeservice();
+	services->running = 1;
 
 	evaldir("", services);
 

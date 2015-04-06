@@ -1,0 +1,4 @@
+need=getty/getty
+exec=/sbin/agetty 38400 tty2 linux
+exits=n
+restart=y

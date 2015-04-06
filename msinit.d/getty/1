@@ -1,7 +1,4 @@
-need=udev
-need=hostname
-need=hwclock
-need=mount-most
+need=getty/getty
 exec=/sbin/agetty --noclear 38400 tty1 linux
 exits=n
 restart=y

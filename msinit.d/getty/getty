@@ -1,0 +1,4 @@
+need=udev
+need=hostname
+need=hwclock
+need=mount-most
