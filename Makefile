@@ -23,7 +23,7 @@ install-msinit: msinit
 .PHONY:
 install-services: msinit.d/*
 	@if [ ! -d ${DESTDIR}${SYSCONFDIR}/msinit.d ]; then \
-		mkdir ${DESTDIR}${SYSCONFDIR}/msinit.d; fi
+		mkdir -p ${DESTDIR}${SYSCONFDIR}/msinit.d; fi
 	cp -r msinit.d/* ${DESTDIR}${SYSCONFDIR}/msinit.d/
 
 .PHONY:
