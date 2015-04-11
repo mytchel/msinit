@@ -1,3 +1,0 @@
-need=udev
-need=mount-most
-exec=/bin/mount /media

@@ -1,0 +1,3 @@
+need=udev/subsystems
+need=udev/devices
+exec=/sbin/udevadm settle -t 5

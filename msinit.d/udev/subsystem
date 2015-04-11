@@ -1,0 +1,2 @@
+need=udev/udevd
+exec=/sbin/udevadm trigger --type=subsystems --action=add

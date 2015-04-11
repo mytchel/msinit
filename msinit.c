@@ -31,7 +31,7 @@ void *runservice(void *arg) {
 	char fullname[256];
 	FILE *f;
 
-	if (!services->running || s->running || (s->exits && s->started))
+	if (!services->running || s->running || (s->exits && s->started)) 
 		stopservice(s);
 
 	s->started = s->running = 1;
@@ -55,7 +55,7 @@ void *runservice(void *arg) {
 
 	s->pid = fork();
 	if (s->pid == 0) {
-		syslog(LOG_NOTICE, "%s", s->name);
+		syslog(LOG_NOTICE, "starting %s", s->name);
 		setsid();
 		
 		if (s->env) 
@@ -87,7 +87,7 @@ void *runservice(void *arg) {
 		}
 
 		s->pid = 0;
-		if (s->restart) {
+		if (s->restart && services->running) {
 			syslog(LOG_ALERT, "restarting %s", s->name);
 			if (!updateservice(s)) {
 				sleep(1); /* Don't go into uninteractable loops of restarting. */
@@ -323,6 +323,11 @@ void chldhandler(int sig) {
 int main(int argc, char **argv) {
 	Service *s;
 	int f;
+	
+	openlog("init", LOG_CONS|LOG_NDELAY|LOG_PERROR, LOG_DAEMON);
+	syslog(LOG_NOTICE, "MSINIT STARTING");
+	
+	
 	/* Ignore all signals */
 	for (f = 1; f <= NSIG; f++)
 		signal(f, SIG_IGN);
@@ -333,14 +338,11 @@ int main(int argc, char **argv) {
 
 	setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin", 1);
 
-	if (fork() == 0) {
-		openlog("msinit", LOG_NDELAY|LOG_PERROR, LOG_DAEMON);
-		syslog(LOG_NOTICE, "evaluating servies...");
-		evalfiles();
-		syslog(LOG_NOTICE, "starting services...");
-		for (s = services->next; s; s = s->next) 
-			pthread_create(&s->thread, NULL, runservice, (void *) s);
-	}
+	syslog(LOG_NOTICE, "evaluating servies...");
+	evalfiles();
+	syslog(LOG_NOTICE, "starting services...");
+	for (s = services->next; s; s = s->next) 
+		pthread_create(&s->thread, NULL, runservice, (void *) s);
 
 	while (1) 
 		sleep(1000);

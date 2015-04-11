@@ -1,2 +1,2 @@
-need=hwclock
-exec=/usr/sbin/alsactl restore
+need=udev/settle
+exec=/usr/sbin/alsactl restore 

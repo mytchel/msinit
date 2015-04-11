@@ -1,5 +1,5 @@
-need=udev
+need=udev/settle
 need=lo/up
 need=hostname
-need=mount-most
+need=mount/most
 exec=/sbin/dhcpcd

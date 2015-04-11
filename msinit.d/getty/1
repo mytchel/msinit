@@ -1,4 +1,4 @@
 need=getty/getty
-exec=/sbin/agetty --noclear 38400 tty1 linux
+exec=/sbin/mingetty --noclear tty1
 exits=n
 restart=y

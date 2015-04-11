@@ -1,2 +1,2 @@
-need=udev
+need=udev/settle
 exec=/bin/mount -a -F

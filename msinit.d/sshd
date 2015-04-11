@@ -2,4 +2,4 @@ need=lo/up
 need=hostname
 need=hwclock
 need=syslogd
-exec=/usr/sbin/sshd
+exec=/etc/rc.d/sshd start

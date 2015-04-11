@@ -1,4 +1,0 @@
-need=proc
-need=sys
-need=mount-root
-exec=/sbin/start_min_udev

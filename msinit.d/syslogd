@@ -1,2 +1,2 @@
-need=udev
+need=mount/root
 exec=/usr/sbin/syslogd

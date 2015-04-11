@@ -1,0 +1,4 @@
+need=hostname
+need=ip/up
+need=dhcpcd
+exec=/usr/bin/su tor -c /usr/bin/tor

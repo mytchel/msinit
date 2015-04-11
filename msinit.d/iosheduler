@@ -1,0 +1,2 @@
+need=sys
+exec=/bin/mksh -c "/bin/echo noop > /sys/block/sda/queue/scheduler"

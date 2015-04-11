@@ -1,4 +1,4 @@
-need=udev
+need=udev/settle
 exec=/usr/sbin/acpid -c /etc/acpi/events -f
 exits=n
 restart=y

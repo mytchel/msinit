@@ -1,4 +1,4 @@
-need=udev
+need=udev/settle
 need=hostname
 need=hwclock
-need=mount-most
+need=mount/most

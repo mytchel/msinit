@@ -1,0 +1,2 @@
+need=udev/settle
+exec=/bin/mount /media

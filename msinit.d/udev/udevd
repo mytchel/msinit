@@ -1,0 +1,8 @@
+need=proc
+need=sys
+need=udev/pts-shm
+need=mount/run
+need=mount/root
+exec=/sbin/udevd
+exits=n
+restart=y
